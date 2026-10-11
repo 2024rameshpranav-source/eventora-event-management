@@ -1,0 +1,24 @@
+/* App-level styles */
+
+#root {
+  min-height: 100vh;
+  width: 100%;
+}
+
+/* Smooth image rendering */
+img {
+  display: block;
+  max-width: 100%;
+}
+
+/* Remove default button font mismatch */
+button {
+  font-family: inherit;
+}
+
+/* Improve keyboard accessibility */
+button:focus-visible,
+a:focus-visible {
+  outline: 2px solid #70484b;
+  outline-offset: 3px;
+}
