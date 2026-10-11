@@ -1,8 +1,12 @@
+
 import { createContext, useContext, useEffect, useState } from "react";
 
 const EventContext = createContext();
 
-const API_URL = "http://localhost:5000/api/events";
+const API_BASE_URL =
+  import.meta.env.VITE_API_URL || "http://localhost:5000";
+
+const API_URL = `${API_BASE_URL}/api/events`;
 
 export function EventProvider({ children }) {
   const [events, setEvents] = useState([]);
@@ -12,10 +16,7 @@ export function EventProvider({ children }) {
   const [loading, setLoading] = useState(true);
   const [selectedEvent, setSelectedEvent] = useState("");
 
-  // =========================
   // FETCH EVENTS
-  // =========================
-
   useEffect(() => {
     const fetchEvents = async () => {
       try {
@@ -37,10 +38,7 @@ export function EventProvider({ children }) {
     fetchEvents();
   }, []);
 
-  // =========================
   // ADD EVENT
-  // =========================
-
   const addEvent = async (eventData) => {
     try {
       const response = await fetch(API_URL, {
@@ -58,7 +56,6 @@ export function EventProvider({ children }) {
       }
 
       setEvents((previous) => [...previous, data]);
-
       return data;
     } catch (error) {
       console.error("Error adding event:", error);
@@ -66,10 +63,7 @@ export function EventProvider({ children }) {
     }
   };
 
-  // =========================
   // DELETE EVENT
-  // =========================
-
   const deleteEvent = async (eventId) => {
     try {
       const response = await fetch(`${API_URL}/${eventId}`, {
@@ -91,10 +85,7 @@ export function EventProvider({ children }) {
     }
   };
 
-  // =========================
   // UPDATE EVENT
-  // =========================
-
   const updateEvent = async (eventId, eventData) => {
     try {
       const response = await fetch(`${API_URL}/${eventId}`, {
@@ -124,10 +115,7 @@ export function EventProvider({ children }) {
     }
   };
 
-  // =========================
   // REGISTER FOR EVENT
-  // =========================
-
   const registerForEvent = (eventId) => {
     setRegisteredEvents((previous) => {
       if (previous.includes(eventId)) {
@@ -138,24 +126,18 @@ export function EventProvider({ children }) {
     });
   };
 
-  // =========================
   // SELECT EVENT
-  // =========================
-
   const selectEventForRegistration = (event) => {
     setSelectedEvent(event);
   };
 
-  // =========================
   // SEARCH + CATEGORY FILTER
-  // =========================
-
   const filteredEvents = events.filter((event) => {
     const matchesCategory =
       selectedCategory === "All" ||
       event.category === selectedCategory;
 
-    const matchesSearch = event.title
+    const matchesSearch = (event.title || "")
       .toLowerCase()
       .includes(search.toLowerCase());
 
@@ -163,33 +145,20 @@ export function EventProvider({ children }) {
   });
 
   const value = {
-    // Events
     events,
     setEvents,
     addEvent,
     deleteEvent,
     updateEvent,
-
-    // Registration
     registeredEvents,
     registerForEvent,
-
-    // Selected event
     selectedEvent,
     selectEventForRegistration,
-
-    // Category
     selectedCategory,
     setSelectedCategory,
-
-    // Search
     search,
     setSearch,
-
-    // Loading
     loading,
-
-    // Filtered events
     filteredEvents,
   };
 

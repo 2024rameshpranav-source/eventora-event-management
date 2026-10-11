@@ -21,14 +21,32 @@ const app = express();
 const httpServer = http.createServer(app);
 
 // =========================
+// CORS CONFIGURATION
+// =========================
+
+const allowedOrigins = [
+  "http://localhost:5173",
+  process.env.CLIENT_URL,
+].filter(Boolean);
+
+const corsOptions = {
+  origin: (origin, callback) => {
+    // Allow requests without an Origin header (e.g. API tools).
+    if (!origin || allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+
+    return callback(new Error("Origin not allowed by CORS"));
+  },
+  methods: ["GET", "POST", "PUT", "DELETE"],
+};
+
+// =========================
 // SOCKET.IO CONFIGURATION
 // =========================
 
 const io = new Server(httpServer, {
-  cors: {
-    origin: "http://localhost:5173",
-    methods: ["GET", "POST", "PUT", "DELETE"],
-  },
+  cors: corsOptions,
 });
 
 io.on("connection", (socket) => {
@@ -50,14 +68,7 @@ app.use((req, res, next) => {
 // =========================
 
 app.use(helmet());
-
-app.use(
-  cors({
-    origin: "http://localhost:5173",
-    methods: ["GET", "POST", "PUT", "DELETE"],
-  })
-);
-
+app.use(cors(corsOptions));
 app.use(express.json({ limit: "10kb" }));
 
 const apiLimiter = rateLimit({
@@ -150,9 +161,7 @@ app.post(
         image: req.body.image,
       });
 
-      // Broadcast only after MongoDB successfully creates the event
       req.io.emit("eventCreated", event);
-
       res.status(201).json(event);
     } catch (error) {
       console.error("Create event error:", error.message);
@@ -201,9 +210,7 @@ app.put(
         return res.status(404).json({ message: "Event not found" });
       }
 
-      // Broadcast the updated document
       req.io.emit("eventUpdated", event);
-
       res.json(event);
     } catch (error) {
       console.error("Update event error:", error.message);
@@ -228,7 +235,6 @@ app.delete(
         return res.status(404).json({ message: "Event not found" });
       }
 
-      // Broadcast the deleted event's ID
       req.io.emit("eventDeleted", {
         id: event._id.toString(),
       });
@@ -258,7 +264,7 @@ mongoose
     console.log("MongoDB connected successfully");
 
     httpServer.listen(PORT, () => {
-      console.log(`Eventora REST API running on http://localhost:${PORT}`);
+      console.log(`Eventora REST API listening on port ${PORT}`);
       console.log("Socket.IO is ready for real-time connections");
     });
   })

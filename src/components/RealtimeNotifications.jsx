@@ -2,7 +2,8 @@
 import { useEffect, useState } from "react";
 import { io } from "socket.io-client";
 
-const SOCKET_URL = "http://localhost:5000";
+const SOCKET_URL =
+  import.meta.env.VITE_SOCKET_URL || "http://localhost:5000";
 
 function RealtimeNotifications() {
   const [notifications, setNotifications] = useState([]);
@@ -11,13 +12,15 @@ function RealtimeNotifications() {
     const socket = io(SOCKET_URL);
 
     const addNotification = (message) => {
-      setNotifications((previous) => [
-        {
-          id: `${Date.now()}-${Math.random()}`,
-          message,
-        },
-        ...previous,
-      ].slice(0, 5));
+      setNotifications((previous) =>
+        [
+          {
+            id: `${Date.now()}-${Math.random()}`,
+            message,
+          },
+          ...previous,
+        ].slice(0, 5)
+      );
     };
 
     socket.on("connect", () => {
