@@ -26,16 +26,37 @@ const httpServer = http.createServer(app);
 
 const allowedOrigins = [
   "http://localhost:5173",
-  process.env.CLIENT_URL,
+  process.env.CLIENT_URL?.replace(/\/$/, ""),
 ].filter(Boolean);
+
+const isAllowedOrigin = (origin) => {
+  if (!origin) return true;
+
+  if (allowedOrigins.includes(origin)) {
+    return true;
+  }
+
+  try {
+    const url = new URL(origin);
+
+    // Allow HTTPS Vercel deployments belonging to Eventora.
+    return (
+      url.protocol === "https:" &&
+      url.hostname.startsWith("eventora-event-management") &&
+      url.hostname.endsWith(".vercel.app")
+    );
+  } catch {
+    return false;
+  }
+};
 
 const corsOptions = {
   origin: (origin, callback) => {
-    // Allow requests without an Origin header (e.g. API tools).
-    if (!origin || allowedOrigins.includes(origin)) {
+    if (isAllowedOrigin(origin)) {
       return callback(null, true);
     }
 
+    console.error("Blocked CORS origin:", origin);
     return callback(new Error("Origin not allowed by CORS"));
   },
   methods: ["GET", "POST", "PUT", "DELETE"],
@@ -248,13 +269,27 @@ app.delete(
 );
 
 // =========================
+// CORS ERROR HANDLING
+// =========================
+
+app.use((error, req, res, next) => {
+  if (error.message === "Origin not allowed by CORS") {
+    return res.status(403).json({
+      message: "Origin not allowed by CORS",
+    });
+  }
+
+  next(error);
+});
+
+// =========================
 // SERVER STARTUP
 // =========================
 
 const PORT = process.env.PORT || 5000;
 
 if (!process.env.MONGODB_URI || !process.env.JWT_SECRET) {
-  console.error("Missing MONGODB_URI or JWT_SECRET in server/.env");
+  console.error("Missing MONGODB_URI or JWT_SECRET in server environment");
   process.exit(1);
 }
 
@@ -266,6 +301,7 @@ mongoose
     httpServer.listen(PORT, () => {
       console.log(`Eventora REST API listening on port ${PORT}`);
       console.log("Socket.IO is ready for real-time connections");
+      console.log("Allowed frontend origins:", allowedOrigins);
     });
   })
   .catch((error) => {
