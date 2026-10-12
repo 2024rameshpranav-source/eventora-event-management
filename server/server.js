@@ -96,7 +96,7 @@ app.use(express.json({ limit: "10kb" }));
 // =========================
 
 const apiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
+  windowMs: 2 * 60 * 1000, // 2 minutes
   limit: 5, // Maximum 5 requests per window per client IP
   standardHeaders: true,
   legacyHeaders: false,
@@ -310,7 +310,7 @@ mongoose
       console.log(`Eventora REST API listening on port ${PORT}`);
       console.log("Socket.IO is ready for real-time connections");
       console.log("Allowed frontend origins:", allowedOrigins);
-      console.log("API rate limit: 5 requests per 15 minutes per client IP");
+      console.log("API rate limit: 5 requests per 2 minutes per client IP");
     });
   })
   .catch((error) => {
