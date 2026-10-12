@@ -39,7 +39,6 @@ const isAllowedOrigin = (origin) => {
   try {
     const url = new URL(origin);
 
-    // Allow HTTPS Vercel deployments belonging to Eventora.
     return (
       url.protocol === "https:" &&
       url.hostname.startsWith("eventora-event-management") &&
@@ -92,9 +91,15 @@ app.use(helmet());
 app.use(cors(corsOptions));
 app.use(express.json({ limit: "10kb" }));
 
+// =========================
+// API RATE LIMITING
+// =========================
+
 const apiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 100,
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  limit: 5, // Maximum 5 requests per window per client IP
+  standardHeaders: true,
+  legacyHeaders: false,
   message: {
     message: "Too many requests. Please try again later.",
   },
@@ -117,7 +122,10 @@ const validateEvent = [
   body("category").trim().notEmpty().withMessage("Category is required"),
   body("date").trim().notEmpty().withMessage("Date is required"),
   body("location").trim().notEmpty().withMessage("Location is required"),
-  body("description").trim().notEmpty().withMessage("Description is required"),
+  body("description")
+    .trim()
+    .notEmpty()
+    .withMessage("Description is required"),
   body("image").trim().notEmpty().withMessage("Image URL is required"),
 ];
 
@@ -302,6 +310,7 @@ mongoose
       console.log(`Eventora REST API listening on port ${PORT}`);
       console.log("Socket.IO is ready for real-time connections");
       console.log("Allowed frontend origins:", allowedOrigins);
+      console.log("API rate limit: 5 requests per 15 minutes per client IP");
     });
   })
   .catch((error) => {
