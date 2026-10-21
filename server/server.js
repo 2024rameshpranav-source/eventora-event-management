@@ -11,11 +11,13 @@ const { Server } = require("socket.io");
 const { body, validationResult } = require("express-validator");
 
 const Event = require("./models/Event");
+const Registration = require("./models/Registration");
 const authRoutes = require("./routes/authRoutes");
 const {
   authenticateToken,
   authorizeRoles,
 } = require("./middleware/authMiddleware");
+const { sendEmail } = require("./emailService");
 
 const app = express();
 const httpServer = http.createServer(app);
@@ -96,8 +98,8 @@ app.use(express.json({ limit: "10kb" }));
 // =========================
 
 const apiLimiter = rateLimit({
-  windowMs: 2 * 60 * 1000, // 2 minutes
-  limit: 5, // Maximum 5 requests per window per client IP
+  windowMs: 2 * 60 * 1000,
+  limit: 5,
   standardHeaders: true,
   legacyHeaders: false,
   message: {
@@ -130,16 +132,40 @@ const validateEvent = [
 ];
 
 // =========================
+// REGISTRATION VALIDATION
+// =========================
+
+const validateRegistration = [
+  body("name")
+    .trim()
+    .notEmpty()
+    .withMessage("Name is required")
+    .isLength({ max: 100 })
+    .withMessage("Name must be 100 characters or fewer"),
+  body("email")
+    .trim()
+    .isEmail()
+    .withMessage("A valid email address is required"),
+  body("phone")
+    .trim()
+    .matches(/^\+?[0-9\s()-]{7,20}$/)
+    .withMessage("A valid phone number is required"),
+  body("eventId")
+    .isMongoId()
+    .withMessage("A valid event ID is required"),
+];
+
+// =========================
 // GET ALL EVENTS - PUBLIC
 // =========================
 
 app.get("/api/events", async (req, res) => {
   try {
     const events = await Event.find().sort({ createdAt: 1 });
-    res.json(events);
+    return res.json(events);
   } catch (error) {
     console.error("Fetch events error:", error.message);
-    res.status(500).json({ message: "Failed to fetch events" });
+    return res.status(500).json({ message: "Failed to fetch events" });
   }
 });
 
@@ -149,15 +175,20 @@ app.get("/api/events", async (req, res) => {
 
 app.get("/api/events/:id", async (req, res) => {
   try {
+    if (!mongoose.isValidObjectId(req.params.id)) {
+      return res.status(400).json({ message: "Invalid event ID" });
+    }
+
     const event = await Event.findById(req.params.id);
 
     if (!event) {
       return res.status(404).json({ message: "Event not found" });
     }
 
-    res.json(event);
+    return res.json(event);
   } catch (error) {
-    res.status(400).json({ message: "Invalid event ID" });
+    console.error("Fetch event error:", error.message);
+    return res.status(500).json({ message: "Failed to fetch event" });
   }
 });
 
@@ -190,11 +221,29 @@ app.post(
         image: req.body.image,
       });
 
+      // Existing real-time event notification
       req.io.emit("eventCreated", event);
-      res.status(201).json(event);
+
+      // Email notification to the admin
+      void sendEmail({
+        to: process.env.ADMIN_NOTIFICATION_EMAIL,
+        subject: `New event added: ${event.title}`,
+        text: [
+          "A new event has been added to Eventora.",
+          "",
+          `Title: ${event.title}`,
+          `Category: ${event.category}`,
+          `Date: ${event.date}`,
+          `Location: ${event.location}`,
+        ].join("\n"),
+      }).catch((error) => {
+        console.error("Event notification email error:", error.message);
+      });
+
+      return res.status(201).json(event);
     } catch (error) {
       console.error("Create event error:", error.message);
-      res.status(400).json({ message: "Failed to create event" });
+      return res.status(500).json({ message: "Failed to create event" });
     }
   }
 );
@@ -219,6 +268,10 @@ app.put(
     }
 
     try {
+      if (!mongoose.isValidObjectId(req.params.id)) {
+        return res.status(400).json({ message: "Invalid event ID" });
+      }
+
       const event = await Event.findByIdAndUpdate(
         req.params.id,
         {
@@ -240,10 +293,10 @@ app.put(
       }
 
       req.io.emit("eventUpdated", event);
-      res.json(event);
+      return res.json(event);
     } catch (error) {
       console.error("Update event error:", error.message);
-      res.status(400).json({ message: "Failed to update event" });
+      return res.status(500).json({ message: "Failed to update event" });
     }
   }
 );
@@ -258,6 +311,10 @@ app.delete(
   authorizeRoles("admin"),
   async (req, res) => {
     try {
+      if (!mongoose.isValidObjectId(req.params.id)) {
+        return res.status(400).json({ message: "Invalid event ID" });
+      }
+
       const event = await Event.findByIdAndDelete(req.params.id);
 
       if (!event) {
@@ -268,10 +325,133 @@ app.delete(
         id: event._id.toString(),
       });
 
-      res.json({ message: "Event deleted successfully" });
+      return res.json({ message: "Event deleted successfully" });
     } catch (error) {
       console.error("Delete event error:", error.message);
-      res.status(400).json({ message: "Failed to delete event" });
+      return res.status(500).json({ message: "Failed to delete event" });
+    }
+  }
+);
+
+// =========================
+// REGISTER FOR EVENT - PUBLIC
+// =========================
+
+app.post(
+  "/api/registrations",
+  validateRegistration,
+  async (req, res) => {
+    const errors = validationResult(req);
+
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        message: "Invalid registration details",
+        errors: errors.array(),
+      });
+    }
+
+    try {
+      const name = req.body.name.trim();
+      const email = req.body.email.trim().toLowerCase();
+      const phone = req.body.phone.trim();
+      const { eventId } = req.body;
+
+      const event = await Event.findById(eventId);
+
+      if (!event) {
+        return res.status(404).json({ message: "Event not found" });
+      }
+
+      let registration;
+
+      try {
+        registration = await Registration.create({
+          name,
+          email,
+          phone,
+          eventId: event._id,
+          eventTitle: event.title,
+        });
+      } catch (error) {
+        if (error.code === 11000) {
+          return res.status(409).json({
+            message: "This email is already registered for this event.",
+          });
+        }
+
+        throw error;
+      }
+
+      // Broadcast only non-sensitive registration information
+      req.io.emit("eventRegistrationCreated", {
+        eventId: event._id.toString(),
+        eventTitle: event.title,
+      });
+
+      // User confirmation email
+      const emailJobs = [
+        sendEmail({
+          to: registration.email,
+          subject: `Registration confirmed: ${event.title}`,
+          text: [
+            `Hello ${registration.name},`,
+            "",
+            `Your registration for "${event.title}" is confirmed.`,
+            `Event date: ${event.date}`,
+            `Location: ${event.location}`,
+            "",
+            "Thank you for registering with Eventora!",
+          ].join("\n"),
+        }),
+      ];
+
+      // Admin notification email
+      if (process.env.ADMIN_NOTIFICATION_EMAIL) {
+        emailJobs.push(
+          sendEmail({
+            to: process.env.ADMIN_NOTIFICATION_EMAIL,
+            subject: `New registration: ${event.title}`,
+            text: [
+              "A new registration has been received.",
+              "",
+              `Event: ${event.title}`,
+              `Name: ${registration.name}`,
+              `Email: ${registration.email}`,
+              `Phone: ${registration.phone}`,
+            ].join("\n"),
+          })
+        );
+      }
+
+      // Email failure must not undo a successful database registration
+      void Promise.allSettled(emailJobs).then((results) => {
+        results.forEach((result) => {
+          if (result.status === "rejected") {
+            console.error(
+              "Registration email error:",
+              result.reason?.message || result.reason
+            );
+          } else if (result.value === false) {
+            console.error("Brevo did not accept a registration email.");
+          }
+        });
+      });
+
+      return res.status(201).json({
+        message: "Registration successful",
+        registration: {
+          id: registration._id,
+          eventId: registration.eventId,
+          eventTitle: registration.eventTitle,
+          name: registration.name,
+          email: registration.email,
+        },
+      });
+    } catch (error) {
+      console.error("Registration error:", error.message);
+      return res.status(500).json({
+        message: "Failed to complete registration",
+      });
     }
   }
 );
@@ -287,7 +467,8 @@ app.use((error, req, res, next) => {
     });
   }
 
-  next(error);
+  console.error("Unhandled server error:", error.message);
+  return res.status(500).json({ message: "Internal server error" });
 });
 
 // =========================
@@ -311,10 +492,14 @@ mongoose
       console.log("Socket.IO is ready for real-time connections");
       console.log("Allowed frontend origins:", allowedOrigins);
       console.log("API rate limit: 5 requests per 2 minutes per client IP");
+      console.log(
+        process.env.BREVO_API_KEY
+          ? "Brevo API key detected"
+          : "Brevo email notifications are not configured"
+      );
     });
   })
   .catch((error) => {
     console.error("MongoDB connection failed:", error.message);
     process.exit(1);
   });
- 
